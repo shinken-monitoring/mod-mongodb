@@ -1,0 +1,25 @@
+{
+  "name": "mongodb",
+  "types": ["module"],
+  "version": "1.4",
+  "homepage": "http://github.com/shinken-monitoring/mod-mongodb",
+  "author": "Jean Gabès",
+  "description": "Module used for all mongodb connections, like for saving UI data, or loading configuration inside the Arbiter",
+  "contributors": [
+    {
+      "name": "Jean Gabès",
+      "email": "naparuba@gmail.com"
+    }
+  ],
+  "repository": "https://github.com/shinken-monitoring/mod-mongodb",
+  "keywords": [
+    "module",
+    "webui",
+    "arbiter",
+    "mongodb"
+  ],
+  "dependencies": {
+    "shinken": ">=1.4"
+  },
+  "license": "AGPL"
+}
