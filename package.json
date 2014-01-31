@@ -1,5 +1,5 @@
 {
-  "name": "mongodb",
+  "name": "mod-mongodb",
   "types": ["module"],
   "version": "1.4",
   "homepage": "http://github.com/shinken-monitoring/mod-mongodb",
@@ -16,7 +16,8 @@
     "module",
     "webui",
     "arbiter",
-    "mongodb"
+    "mongodb",
+    "mongo"
   ],
   "dependencies": {
     "shinken": ">=1.4"
