@@ -1,7 +1,7 @@
 {
   "name": "mod-mongodb",
   "types": ["module"],
-  "version": "1.4",
+  "version": "1.0",
   "homepage": "http://github.com/shinken-monitoring/mod-mongodb",
   "author": "Jean Gabès",
   "description": "Module used for all mongodb connections, like for saving UI data, or loading configuration inside the Arbiter",
@@ -17,7 +17,8 @@
     "webui",
     "arbiter",
     "mongodb",
-    "mongo"
+    "mongo",
+    "database"
   ],
   "dependencies": {
     "shinken": ">=1.4"
