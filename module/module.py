@@ -57,12 +57,8 @@ def get_instance(plugin):
         raise Exception('Cannot find the module python-pymongo. Please install it.')
     uri = plugin.uri
     database = plugin.database
-    try:
-        username = plugin.username
-        password = plugin.password
-    except:
-        username = ''
-        password = ''
+    username = getattr(plugin, 'username', '')
+    password = getattr(plugin, 'password', '')
     
     instance = Mongodb_generic(plugin, uri, database, username, password)
     return instance
@@ -86,10 +82,8 @@ class Mongodb_generic(BaseModule):
         try:
             self.con = Connection(self.uri)
             self.db = getattr(self.con, self.database)
-            try:
+            if self.username != '' and self.password != '':
                 self.db.authenticate(self.username, self.password)
-            except:
-                pass
         except Exception, e:
             logger.error("Mongodb Module: Error %s:" % e)
             raise
