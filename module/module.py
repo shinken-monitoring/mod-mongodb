@@ -39,6 +39,12 @@ try:
 except ImportError:
     Connection = None
 
+try:
+    from pymongo import ReplicaSetConnection, ReadPreference
+except ImportError:
+    ReplicaSetConnection = None
+    ReadPreference = None	
+	
 from shinken.basemodule import BaseModule
 from shinken.log import logger
 
@@ -59,19 +65,29 @@ def get_instance(plugin):
     database = plugin.database
     username = getattr(plugin, 'username', '')
     password = getattr(plugin, 'password', '')
+    replica_set = getattr(plugin, 'replica_set', '')
     
-    instance = Mongodb_generic(plugin, uri, database, username, password)
+    instance = Mongodb_generic(plugin, uri, database, username, password, replica_set)
     return instance
 
 
 # Retrieve hosts from a Mongodb
 class Mongodb_generic(BaseModule):
-    def __init__(self, mod_conf, uri, database, username, password):
+    def __init__(self, mod_conf, uri, database, username, password, replica_set):
         BaseModule.__init__(self, mod_conf)
         self.uri = uri
         self.database = database
         self.username = username
         self.password = password
+        self.replica_set = replica_set
+
+        if self.replica_set and not ReplicaSetConnection:
+            logger.error('[Mongodb Module] Can not initialize module with '
+                         'replica_set because your pymongo lib is too old. '
+                         'Please install it with a 2.x+ version from '
+                         'https://github.com/mongodb/mongo-python-driver/downloads')
+            return None		
+        
         # Some used variable init
         self.con = None
         self.db = None
@@ -80,7 +96,17 @@ class Mongodb_generic(BaseModule):
     def init(self):
         logger.info("[Mongodb Module]: Try to open a Mongodb connection to %s:%s" % (self.uri, self.database))
         try:
-            self.con = Connection(self.uri)
+            # BEGIN - Connection part
+            if self.replica_set:
+                self.con = ReplicaSetConnection(self.uri, replicaSet=self.replica_set, fsync=False)
+            else:
+                # Old versions of pymongo do not known about fsync
+                if ReplicaSetConnection:
+                    self.con = Connection(self.uri, fsync=False)
+                else:
+                    self.con = Connection(self.uri)
+            # END
+			
             self.db = getattr(self.con, self.database)
             if self.username != '' and self.password != '':
                 self.db.authenticate(self.username, self.password)
