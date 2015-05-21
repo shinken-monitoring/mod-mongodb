@@ -35,16 +35,11 @@ except ImportError:
     uuid = None
 
 try:
-    from pymongo.connection import Connection
+    import pymongo
+    from pymongo import MongoClient
 except ImportError:
-    Connection = None
+    MongoClient = None
 
-try:
-    from pymongo import ReplicaSetConnection, ReadPreference
-except ImportError:
-    ReplicaSetConnection = None
-    ReadPreference = None	
-	
 from shinken.basemodule import BaseModule
 from shinken.log import logger
 
@@ -59,7 +54,7 @@ properties = {
 # called by the plugin manager to get a module instance
 def get_instance(plugin):
     logger.debug("[MongoDB Module]: Get Mongodb instance for plugin %s" % plugin.get_name())
-    if not Connection:
+    if not MongoClient:
         raise Exception('Cannot find the module python-pymongo. Please install it.')
     uri = plugin.uri
     database = plugin.database
@@ -81,11 +76,11 @@ class Mongodb_generic(BaseModule):
         self.password = password
         self.replica_set = replica_set
 
-        if self.replica_set and not ReplicaSetConnection:
+        if self.replica_set and int(pymongo.version[0]) < 3:
             logger.error('[Mongodb Module] Can not initialize module with '
                          'replica_set because your pymongo lib is too old. '
-                         'Please install it with a 2.x+ version from '
-                         'https://github.com/mongodb/mongo-python-driver/downloads')
+                         'Please install it with a 3.x+ version from '
+                         'https://pypi.python.org/pypi/pymongo')
             return None		
         
         # Some used variable init
@@ -98,15 +93,11 @@ class Mongodb_generic(BaseModule):
         try:
             # BEGIN - Connection part
             if self.replica_set:
-                self.con = ReplicaSetConnection(self.uri, replicaSet=self.replica_set, fsync=False)
+                self.con = MongoClient(self.uri, replicaSet=self.replica_set, fsync=False)
             else:
-                # Old versions of pymongo do not known about fsync
-                if ReplicaSetConnection:
-                    self.con = Connection(self.uri, fsync=False)
-                else:
-                    self.con = Connection(self.uri)
+                self.con = MongoClient(self.uri, fsync=False)
             # END
-			
+
             self.db = getattr(self.con, self.database)
             if self.username != '' and self.password != '':
                 self.db.authenticate(self.username, self.password)
@@ -165,7 +156,7 @@ class Mongodb_generic(BaseModule):
 
         print "Unknown TYPE in migration!"
         return u
-            
+
 
 
     # Function called by the arbiter so we import the objects in our databases
@@ -179,7 +170,7 @@ class Mongodb_generic(BaseModule):
             logger.error("Your python version is too old. Please update to a 2.6 version to use this feature")
             return False
 
-        
+
         for t in data:
             col = getattr(self.db, t)
             print "Saving objects %s" % t
@@ -191,7 +182,7 @@ class Mongodb_generic(BaseModule):
             
 
         return True
-        
+
 
 
 #################################### WebUI parts ############################
@@ -292,4 +283,3 @@ class Mongodb_generic(BaseModule):
         if not r:
             print "[Mongodb]: error Problem during update/insert phase"
             return None
-
