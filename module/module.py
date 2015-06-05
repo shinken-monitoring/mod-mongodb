@@ -219,6 +219,10 @@ class Mongodb_generic(BaseModule):
         e = self.db.ui_user_preferences.find_one({'_id': user.get_name()})
 
         print '[Mongodb] Get entry?', e
+        # If no specific key is required, returns all user parameters ...
+        if key is None:
+            return e
+
         # Maybe it's a new entryor missing this parameter, bail out
         if not e or not key in e:
             print '[Mongodb] no key or invalid one'
