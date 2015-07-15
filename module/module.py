@@ -37,6 +37,9 @@ try:
 except ImportError:
     uuid = None
 
+import time
+import re
+
 from shinken.basemodule import BaseModule
 from shinken.log import logger
 
@@ -44,7 +47,7 @@ try:
     import pymongo
     from pymongo import MongoClient
 except ImportError:
-    logger.error('[MongoDB Module] Can not import pymongo and/or MongoClient'
+    logger.error('[MongoDB] Can not import pymongo and/or MongoClient'
                  'Your pymongo lib is too old. '
                  'Please install it with a 3.x+ version from '
                  'https://pypi.python.org/pypi/pymongo')
@@ -60,7 +63,7 @@ properties = {
 
 # called by the plugin manager
 def get_instance(plugin):
-    logger.info("[MongoDB Module] Get MongoDB instance for plugin %s" % plugin.get_name())
+    logger.info("[MongoDB] Get MongoDB instance for plugin %s" % plugin.get_name())
     instance = Mongodb_generic(plugin)
     return instance
 
@@ -71,31 +74,35 @@ class Mongodb_generic(BaseModule):
         BaseModule.__init__(self, mod_conf)
 
         self.uri = getattr(mod_conf, 'uri', None)
-        logger.info('[MongoDB Module] mongo uri: %s' % self.uri)
+        logger.info('[MongoDB] mongo uri: %s' % self.uri)
         self.replica_set = getattr(mod_conf, 'replica_set', None)
         if self.replica_set and int(pymongo.version[0]) < 3:
-            logger.error('[MongoDB Module] Can not initialize module with '
+            logger.error('[MongoDB] Can not initialize module with '
                          'replica_set because your pymongo lib is too old. '
                          'Please install it with a 3.x+ version from '
                          'https://pypi.python.org/pypi/pymongo')
             return None
         self.database = getattr(mod_conf, 'database', 'shinken')
-        logger.info('[MongoDB Module] database: %s' % self.database)
-        self.collection = getattr(mod_conf, 'collection', 'availability')
-        logger.info('[MongoDB Module] collection: %s' % self.collection)
+        logger.info('[MongoDB] database: %s' % self.database)
+        
+        self.hav_collection = getattr(mod_conf, 'hav_collection', 'availability')
+        logger.info('[MongoDB] hosts availability collection: %s' % self.hav_collection)
+        
+        self.logs_collection = getattr(mod_conf, 'logs_collection', 'logs')
+        logger.info('[MongoDB] Shinken logs collection: %s' % self.logs_collection)
         
         self.username = getattr(mod_conf, 'username', None)
         self.password = getattr(mod_conf, 'password', None)
 
         self.max_records = int(getattr(mod_conf, 'max_records', '200'))
-        logger.info('[MongoDB Module] max records: %s' % self.max_records)
+        logger.info('[MongoDB] max records: %s' % self.max_records)
 
         self.con = None
         self.db = None
 
     # Called by Arbiter to say 'let's prepare yourself guy'
     def init(self):
-        logger.info("[MongoDB Module] Try to open a Mongodb connection to %s, database: %s" % (self.uri, self.database))
+        logger.info("[MongoDB] Try to open a Mongodb connection to %s, database: %s" % (self.uri, self.database))
         try:
             # BEGIN - Connection part
             if self.replica_set:
@@ -108,16 +115,16 @@ class Mongodb_generic(BaseModule):
             if self.username and self.password:
                 self.db.authenticate(self.username, self.password)
         except Exception, e:
-            logger.error("[MongoDB Module] Error %s:", e)
+            logger.error("[MongoDB] Error %s:", e)
             raise
-        logger.info("[MongoDB Module] Connection OK")
+        logger.info("[MongoDB] Connection OK")
 
 ################################ Arbiter part #################################
 
     # Main function that is called in the CONFIGURATION phase
     def get_objects(self):
         if not self.db:
-            logger.error("[MongoDB Module] Problem during init phase")
+            logger.error("[MongoDB] Problem during init phase")
             return {}
 
         r = {}
@@ -167,7 +174,7 @@ class Mongodb_generic(BaseModule):
     # Function called by the arbiter so we import the objects in our databases
     def import_objects(self, data):
         if not self.db:
-            logger.error("[Mongodb]: error Problem during init phase")
+            logger.error("[MongoDB]: error Problem during init phase")
             return False
 
         # Maybe we can't have a good way to have uniq id, if so, bail out
@@ -196,15 +203,15 @@ class Mongodb_generic(BaseModule):
     # and get the key they are asking us
     def get_ui_common_preference(self, key):
         if not self.db:
-            print "[Mongodb]: error Problem during init phase"
+            print "[MongoDB]: error Problem during init phase"
             return None
 
         e = self.db.ui_user_preferences.find_one({'_id': 'shinken-global'})
 
-        print '[Mongodb] Get entry?', e
+        print '[MongoDB] Get entry?', e
         # Maybe it's a new entryor missing this parameter, bail out
         if not e or not key in e:
-            print '[Mongodb] no key or invalid one'
+            print '[MongoDB] no key or invalid one'
             return None
 
         return e.get(key)
@@ -213,23 +220,23 @@ class Mongodb_generic(BaseModule):
     # they are asking us
     def get_ui_user_preference(self, user, key):
         if not self.db:
-            print "[Mongodb]: error Problem during init phase"
+            print "[MongoDB]: error Problem during init phase"
             return None
 
         if not user:
-            print '[Mongodb]: error get_ui_user_preference::no user'
+            print '[MongoDB]: error get_ui_user_preference::no user'
             return None
         # user.get_name()
         e = self.db.ui_user_preferences.find_one({'_id': user.get_name()})
 
-        print '[Mongodb] Get entry?', e
+        print '[MongoDB] Get entry?', e
         # If no specific key is required, returns all user parameters ...
         if key is None:
             return e
 
         # Maybe it's a new entryor missing this parameter, bail out
         if not e or not key in e:
-            print '[Mongodb] no key or invalid one'
+            print '[MongoDB] no key or invalid one'
             return None
 
         return e.get(key)
@@ -237,11 +244,11 @@ class Mongodb_generic(BaseModule):
     # Same but for saving
     def set_ui_user_preference(self, user, key, value):
         if not self.db:
-            print "[Mongodb]: error Problem during init phase"
+            print "[MongoDB]: error Problem during init phase"
             return None
 
         if not user:
-            print '[Mongodb]: error get_ui_user_preference::no user'
+            print '[MongoDB]: error get_ui_user_preference::no user'
             return None
 
         # Ok, go for update
@@ -250,30 +257,30 @@ class Mongodb_generic(BaseModule):
         u = self.db.ui_user_preferences.find_one({'_id': user.get_name()})
         if not u:
             # no collection for this user? create a new one
-            print "[Mongodb] No user entry for %s, I create a new one" % user.get_name()
+            print "[MongoDB] No user entry for %s, I create a new one" % user.get_name()
             self.db.ui_user_preferences.save({'_id': user.get_name(), key: value})
         else:
             # found a collection for this user
-            print "[Mongodb] user entry found for %s" % user.get_name()
+            print "[MongoDB] user entry found for %s" % user.get_name()
 
-        print '[Mongodb]: saving user pref', "'$set': { %s: %s }" % (key, value)
+        print '[MongoDB]: saving user pref', "'$set': { %s: %s }" % (key, value)
         r = self.db.ui_user_preferences.update({'_id': user.get_name()}, {'$set': {key: value}})
-        print "[Mongodb] Return from update", r
+        print "[MongoDB] Return from update", r
         # Maybe there was no doc there, if so, create an empty one
         if not r:
             # Maybe the user exist, if so, get the whole user entry
             u = self.db.ui_user_preferences.find_one({'_id': user.get_name()})
             if not u:
-                print "[Mongodb] No user entry for %s, I create a new one" % user.get_name()
+                print "[MongoDB] No user entry for %s, I create a new one" % user.get_name()
                 self.db.ui_user_preferences.save({'_id': user.get_name(), key: value})
             else:  # ok, it was just the key that was missing, just update it and save it
                 u[key] = value
-                print '[Mongodb] Just saving the new key in the user pref'
+                print '[MongoDB] Just saving the new key in the user pref'
                 self.db.ui_user_preferences.save(u)
 
     def set_ui_common_preference(self, key, value):
         if not self.db:
-            print "[Mongodb]: error Problem during init phase"
+            print "[MongoDB]: error Problem during init phase"
             return None
 
         # check a collection exist for this user
@@ -281,26 +288,28 @@ class Mongodb_generic(BaseModule):
 
         if not u:
             # no collection for this user? create a new one
-            print "[Mongodb] No common entry, I create a new one"
+            print "[MongoDB] No common entry, I create a new one"
             r = self.db.ui_user_preferences.save({'_id': 'shinken-global', key: value})
         else:
             # found a collection for this user
-            print "[Mongodb] common entry found. Updating"
+            print "[MongoDB] common entry found. Updating"
             r = self.db.ui_user_preferences.update({'_id': 'shinken-global'}, {'$set': {key: value}})
 
         if not r:
-            print "[Mongodb]: error Problem during update/insert phase"
+            print "[MongoDB]: error Problem during update/insert phase"
             return None
+
+
 
 ######################## WebUI availability part ############################
 
     # We will get in the mongodb database the host availability
     def get_ui_availability(self, name, range_start=None, range_end=None):
         if not self.db:
-            logger.error("[Mongodb] error Problem during init phase, no database connection")
+            logger.error("[MongoDB] error Problem during init phase, no database connection")
             return None
 
-        logger.info("[Mongodb] get_ui_availability, name: %s", name)
+        logger.info("[MongoDB] get_ui_availability, name: %s", name)
         hostname = None
         service = None
         if name is not None:
@@ -308,11 +317,11 @@ class Mongodb_generic(BaseModule):
             if '/' in name:
                 service = name.split('/')[1]
                 hostname = name.split('/')[0]
-        logger.info("[Mongodb] get_ui_availability, host/service: %s/%s", hostname, service)
+        logger.info("[MongoDB] get_ui_availability, host/service: %s/%s", hostname, service)
 
         records=[]
         try:
-            logger.info("[Mongodb] Fetching records from database for host/service: '%s/%s'", hostname, service)
+            logger.info("[MongoDB] Fetching records from database for host/service: '%s/%s'", hostname, service)
 
             query = []
             if hostname is not None:
@@ -325,9 +334,9 @@ class Mongodb_generic(BaseModule):
                 query.append( { 'day_ts': { '$lte': range_end } } )
 
             if len(query) > 0:
-                logger.info("[Mongodb] Fetching records from database with query: '%s'", query)
+                logger.info("[MongoDB] Fetching records from database with query: '%s'", query)
 
-                for log in self.db[self.collection].find({'$and': query}).sort([
+                for log in self.db[self.hav_collection].find({'$and': query}).sort([
                                     ("day",pymongo.DESCENDING), 
                                     ("hostname",pymongo.ASCENDING), 
                                     ("service",pymongo.ASCENDING)]).limit(self.max_records):
@@ -335,7 +344,7 @@ class Mongodb_generic(BaseModule):
                         del log['_id']
                     records.append(log)
             else:
-                for log in self.db[self.collection].find().sort([
+                for log in self.db[self.hav_collection].find().sort([
                                     ("day",pymongo.DESCENDING), 
                                     ("hostname",pymongo.ASCENDING), 
                                     ("service",pymongo.ASCENDING)]).limit(self.max_records):
@@ -343,8 +352,82 @@ class Mongodb_generic(BaseModule):
                         del log['_id']
                     records.append(log)
 
-            logger.info("[Mongodb] %d records fetched from database.", len(records))
+            logger.info("[MongoDB] %d records fetched from database.", len(records))
         except Exception, exp:
-            logger.error("[Mongodb] Exception when querying database: %s", str(exp))
+            logger.error("[MongoDB] Exception when querying database: %s", str(exp))
+
+        return records
+
+
+
+######################## WebUI availability part ############################
+
+    # We will get in the mongodb database the logs
+    def get_ui_logs(self, name, logs_type=None):
+        if not self.db:
+            logger.error("[MongoDB] error Problem during init phase, no database connection")
+            return None
+
+        logger.info("[MongoDB] get_ui_logs, name: %s", name)
+        hostname = None
+        service = None
+        if name is not None:
+            hostname = name
+            if '/' in name:
+                service = name.split('/')[1]
+                hostname = name.split('/')[0]
+        logger.info("[MongoDB] get_ui_logs, host/service: %s/%s", hostname, service)
+
+        records=[]
+        try:
+            logger.info("[MongoDB] Fetching records from database for host/service: '%s/%s'", hostname, service)
+
+            query = []
+            if hostname is not None:
+                query.append( { "host_name" : { "$in": [ hostname ] }} )
+            if service is not None:
+                query.append( { "service_description" : { "$in": [ service ] }} )
+            if len(logs_type) > 0 and logs_type[0] != '':
+                query.append({ "type" : { "$in": logs_type }})
+            # if range_start:
+                # query.append( { 'day_ts': { '$gte': range_start } } )
+            # if range_end:
+                # query.append( { 'day_ts': { '$lte': range_end } } )
+
+            if len(query) > 0:
+                logger.info("[MongoDB] Fetching records from database with query: '%s'", query)
+
+                for log in self.db[self.logs_collection].find({'$and': query}).sort([
+                                    ("time",pymongo.DESCENDING)]).limit(self.max_records):
+                    message = log['message']
+                    m = re.search(r"\[(\d+)\] (.*)", message)
+                    if m and m.group(2):
+                        message = m.group(2)
+                        
+                    records.append({
+                        "timestamp":    int(log["time"]),
+                        "host":         log['host_name'],
+                        "service":      log['service_description'],
+                        "message":      message
+                    })
+
+            else:
+                for log in self.db[self.logs_collection].find().sort([
+                                    ("day",pymongo.DESCENDING)]).limit(self.max_records):
+                    message = log['message']
+                    m = re.search(r"\[(\d+)\] (.*)", message)
+                    if m and m.group(2):
+                        message = m.group(2)
+                        
+                    records.append({
+                        "timestamp":    int(log["time"]),
+                        "host":         log['host_name'],
+                        "service":      log['service_description'],
+                        "message":      message
+                    })
+
+            logger.info("[MongoDB] %d records fetched from database.", len(records))
+        except Exception, exp:
+            logger.error("[MongoDB] Exception when querying database: %s", str(exp))
 
         return records
