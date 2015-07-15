@@ -24,7 +24,10 @@
 # along with Shinken. If not, see <http://www.gnu.org/licenses/>.
 
 """
-This module job is to get configuration data (mostly hosts) from a mongodb database.
+This module job is to get configuration data from a mongodb database:
+- get hosts
+- get/set Web UI user's preferences
+- get hosts availability logs
 """
 
 # This module imports hosts and services configuration from a MySQL Database
@@ -34,62 +37,65 @@ try:
 except ImportError:
     uuid = None
 
+from shinken.basemodule import BaseModule
+from shinken.log import logger
+
 try:
     import pymongo
     from pymongo import MongoClient
 except ImportError:
+    logger.error('[MongoDB Module] Can not import pymongo and/or MongoClient'
+                 'Your pymongo lib is too old. '
+                 'Please install it with a 3.x+ version from '
+                 'https://pypi.python.org/pypi/pymongo')
     MongoClient = None
 
-from shinken.basemodule import BaseModule
-from shinken.log import logger
-
 properties = {
-    'daemons': ['arbiter', 'webui', 'skonf'],
+    'daemons': ['arbiter', 'webui'],
     'type': 'mongodb',
     'external': False,
     'phases': ['configuration'],
 }
 
 
-# called by the plugin manager to get a module instance
+# called by the plugin manager
 def get_instance(plugin):
-    logger.debug("[MongoDB Module]: Get Mongodb instance for plugin %s" % plugin.get_name())
-    if not MongoClient:
-        raise Exception('Cannot find the module python-pymongo. Please install it.')
-    uri = plugin.uri
-    database = plugin.database
-    username = getattr(plugin, 'username', '')
-    password = getattr(plugin, 'password', '')
-    replica_set = getattr(plugin, 'replica_set', '')
-    
-    instance = Mongodb_generic(plugin, uri, database, username, password, replica_set)
+    logger.info("[MongoDB Module] Get MongoDB instance for plugin %s" % plugin.get_name())
+    instance = Mongodb_generic(plugin)
     return instance
 
 
 # Retrieve hosts from a Mongodb
 class Mongodb_generic(BaseModule):
-    def __init__(self, mod_conf, uri, database, username, password, replica_set):
+    def __init__(self, mod_conf):
         BaseModule.__init__(self, mod_conf)
-        self.uri = uri
-        self.database = database
-        self.username = username
-        self.password = password
-        self.replica_set = replica_set
 
+        self.uri = getattr(mod_conf, 'uri', None)
+        logger.info('[MongoDB Module] mongo uri: %s' % self.uri)
+        self.replica_set = getattr(mod_conf, 'replica_set', None)
         if self.replica_set and int(pymongo.version[0]) < 3:
-            logger.error('[Mongodb Module] Can not initialize module with '
+            logger.error('[MongoDB Module] Can not initialize module with '
                          'replica_set because your pymongo lib is too old. '
                          'Please install it with a 3.x+ version from '
                          'https://pypi.python.org/pypi/pymongo')
-            return None		
+            return None
+        self.database = getattr(mod_conf, 'database', 'shinken')
+        logger.info('[MongoDB Module] database: %s' % self.database)
+        self.collection = getattr(mod_conf, 'collection', 'availability')
+        logger.info('[MongoDB Module] collection: %s' % self.collection)
         
-        # Some used variable init
+        self.username = getattr(mod_conf, 'username', None)
+        self.password = getattr(mod_conf, 'password', None)
+
+        self.max_records = int(getattr(mod_conf, 'max_records', '200'))
+        logger.info('[MongoDB Module] max records: %s' % self.max_records)
+
         self.con = None
         self.db = None
 
     # Called by Arbiter to say 'let's prepare yourself guy'
     def init(self):
-        logger.info("[Mongodb Module]: Try to open a Mongodb connection to %s:%s" % (self.uri, self.database))
+        logger.info("[MongoDB Module] Try to open a Mongodb connection to %s, database: %s" % (self.uri, self.database))
         try:
             # BEGIN - Connection part
             if self.replica_set:
@@ -99,19 +105,19 @@ class Mongodb_generic(BaseModule):
             # END
 
             self.db = getattr(self.con, self.database)
-            if self.username != '' and self.password != '':
+            if self.username and self.password:
                 self.db.authenticate(self.username, self.password)
         except Exception, e:
-            logger.error("Mongodb Module: Error %s:" % e)
+            logger.error("[MongoDB Module] Error %s:", e)
             raise
-        logger.info("[Mongodb Module]: Connection OK")
+        logger.info("[MongoDB Module] Connection OK")
 
 ################################ Arbiter part #################################
 
     # Main function that is called in the CONFIGURATION phase
     def get_objects(self):
         if not self.db:
-            logger.error("[Mongodb Module]: Problem during init phase")
+            logger.error("[MongoDB Module] Problem during init phase")
             return {}
 
         r = {}
@@ -156,7 +162,6 @@ class Mongodb_generic(BaseModule):
 
         print "Unknown TYPE in migration!"
         return u
-
 
 
     # Function called by the arbiter so we import the objects in our databases
@@ -206,7 +211,6 @@ class Mongodb_generic(BaseModule):
         
     # We will get in the mongodb database the user preference entry, and get the key
     # they are asking us
-    
     def get_ui_user_preference(self, user, key):
         if not self.db:
             print "[Mongodb]: error Problem during init phase"
@@ -287,3 +291,60 @@ class Mongodb_generic(BaseModule):
         if not r:
             print "[Mongodb]: error Problem during update/insert phase"
             return None
+
+######################## WebUI availability part ############################
+
+    # We will get in the mongodb database the host availability
+    def get_ui_availability(self, name, range_start=None, range_end=None):
+        if not self.db:
+            logger.error("[Mongodb] error Problem during init phase, no database connection")
+            return None
+
+        logger.info("[Mongodb] get_ui_availability, name: %s", name)
+        hostname = None
+        service = None
+        if name is not None:
+            hostname = name
+            if '/' in name:
+                service = name.split('/')[1]
+                hostname = name.split('/')[0]
+        logger.info("[Mongodb] get_ui_availability, host/service: %s/%s", hostname, service)
+
+        records=[]
+        try:
+            logger.info("[Mongodb] Fetching records from database for host/service: '%s/%s'", hostname, service)
+
+            query = []
+            if hostname is not None:
+                query.append( { "hostname" : { "$in": [ hostname ] }} )
+            if service is not None:
+                query.append( { "service" : { "$in": [ service ] }} )
+            if range_start:
+                query.append( { 'day_ts': { '$gte': range_start } } )
+            if range_end:
+                query.append( { 'day_ts': { '$lte': range_end } } )
+
+            if len(query) > 0:
+                logger.info("[Mongodb] Fetching records from database with query: '%s'", query)
+
+                for log in self.db[self.collection].find({'$and': query}).sort([
+                                    ("day",pymongo.DESCENDING), 
+                                    ("hostname",pymongo.ASCENDING), 
+                                    ("service",pymongo.ASCENDING)]).limit(self.max_records):
+                    if '_id' in log:
+                        del log['_id']
+                    records.append(log)
+            else:
+                for log in self.db[self.collection].find().sort([
+                                    ("day",pymongo.DESCENDING), 
+                                    ("hostname",pymongo.ASCENDING), 
+                                    ("service",pymongo.ASCENDING)]).limit(self.max_records):
+                    if '_id' in log:
+                        del log['_id']
+                    records.append(log)
+
+            logger.info("[Mongodb] %d records fetched from database.", len(records))
+        except Exception, exp:
+            logger.error("[Mongodb] Exception when querying database: %s", str(exp))
+
+        return records
