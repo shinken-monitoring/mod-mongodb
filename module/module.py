@@ -309,7 +309,7 @@ class Mongodb_generic(BaseModule):
             logger.error("[MongoDB] error Problem during init phase, no database connection")
             return None
 
-        logger.info("[MongoDB] get_ui_availability, name: %s", name)
+        logger.debug("[MongoDB] get_ui_availability, name: %s", name)
         hostname = None
         service = None
         if name is not None:
@@ -317,11 +317,11 @@ class Mongodb_generic(BaseModule):
             if '/' in name:
                 service = name.split('/')[1]
                 hostname = name.split('/')[0]
-        logger.info("[MongoDB] get_ui_availability, host/service: %s/%s", hostname, service)
+        logger.debug("[MongoDB] get_ui_availability, host/service: %s/%s", hostname, service)
 
         records=[]
         try:
-            logger.info("[MongoDB] Fetching records from database for host/service: '%s/%s'", hostname, service)
+            logger.debug("[MongoDB] Fetching records from database for host/service: '%s/%s'", hostname, service)
 
             query = []
             if hostname is not None:
@@ -334,7 +334,7 @@ class Mongodb_generic(BaseModule):
                 query.append( { 'day_ts': { '$lte': range_end } } )
 
             if len(query) > 0:
-                logger.info("[MongoDB] Fetching records from database with query: '%s'", query)
+                logger.debug("[MongoDB] Fetching records from database with query: '%s'", query)
 
                 for log in self.db[self.hav_collection].find({'$and': query}).sort([
                                     ("day",pymongo.DESCENDING), 
@@ -352,7 +352,7 @@ class Mongodb_generic(BaseModule):
                         del log['_id']
                     records.append(log)
 
-            logger.info("[MongoDB] %d records fetched from database.", len(records))
+            logger.debug("[MongoDB] %d records fetched from database.", len(records))
         except Exception, exp:
             logger.error("[MongoDB] Exception when querying database: %s", str(exp))
 
@@ -368,7 +368,7 @@ class Mongodb_generic(BaseModule):
             logger.error("[MongoDB] error Problem during init phase, no database connection")
             return None
 
-        logger.info("[MongoDB] get_ui_logs, name: %s", name)
+        logger.debug("[MongoDB] get_ui_logs, name: %s", name)
         hostname = None
         service = None
         if name is not None:
@@ -376,11 +376,11 @@ class Mongodb_generic(BaseModule):
             if '/' in name:
                 service = name.split('/')[1]
                 hostname = name.split('/')[0]
-        logger.info("[MongoDB] get_ui_logs, host/service: %s/%s", hostname, service)
+        logger.debug("[MongoDB] get_ui_logs, host/service: %s/%s", hostname, service)
 
         records=[]
         try:
-            logger.info("[MongoDB] Fetching records from database for host/service: '%s/%s'", hostname, service)
+            logger.debug("[MongoDB] Fetching records from database for host/service: '%s/%s'", hostname, service)
 
             query = []
             if hostname is not None:
@@ -395,7 +395,7 @@ class Mongodb_generic(BaseModule):
                 # query.append( { 'day_ts': { '$lte': range_end } } )
 
             if len(query) > 0:
-                logger.info("[MongoDB] Fetching records from database with query: '%s'", query)
+                logger.debug("[MongoDB] Fetching records from database with query: '%s'", query)
 
                 for log in self.db[self.logs_collection].find({'$and': query}).sort([
                                     ("time",pymongo.DESCENDING)]).limit(self.max_records):
@@ -426,7 +426,7 @@ class Mongodb_generic(BaseModule):
                         "message":      message
                     })
 
-            logger.info("[MongoDB] %d records fetched from database.", len(records))
+            logger.debug("[MongoDB] %d records fetched from database.", len(records))
         except Exception, exp:
             logger.error("[MongoDB] Exception when querying database: %s", str(exp))
 
