@@ -387,7 +387,7 @@ class Mongodb_generic(BaseModule):
                 query.append( { "host_name" : { "$in": [ hostname ] }} )
             if service is not None:
                 query.append( { "service_description" : { "$in": [ service ] }} )
-            if len(logs_type) > 0 and logs_type[0] != '':
+            if logs_type and len(logs_type) > 0 and logs_type[0] != '':
                 query.append({ "type" : { "$in": logs_type }})
             # if range_start:
                 # query.append( { 'day_ts': { '$gte': range_start } } )
